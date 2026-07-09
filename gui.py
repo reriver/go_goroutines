@@ -1,102 +1,103 @@
-import subprocess
+import socket
 import threading
-import tkinter as tk
-from tkinter import ttk
-import os
-import time  # Добавили пакет времени для разгрузки процессора
+import pygame
+import sys
 
-class SmoothPixelVisualizer:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Go Channels 11,250 Goroutines Matrix")
+# Размеры нашей сочной сетки 150x75 (итого 11 250 горутин)
+COLS = 150
+ROWS = 75
+BLOCK_SIZE = 8  # Каждый элемент — идеальный квадрат 8х8 пикселей
+
+WIDTH = COLS * BLOCK_SIZE
+HEIGHT = ROWS * BLOCK_SIZE
+
+# Яркая неоновая палитра для 8 ядер чипа M1 (RGB формат)
+CORE_COLORS = {
+    1: (255, 51, 51),    # Ярко-красный
+    2: (51, 255, 51),    # Неоновый зеленый
+    3: (51, 102, 255),   # Электрик синий
+    4: (255, 255, 51),   # Кислотно-желтый
+    5: (255, 51, 255),   # Пурпурный
+    6: (51, 255, 255),   # Бирюзовый
+    7: (255, 153, 51),   # Солнечно-оранжевый
+    8: (153, 51, 255)    # Глубокий фиолетовый
+}
+BG_COLOR = (30, 30, 30)      # Темно-серый цвет спящей горутины
+DONE_COLOR = (58, 58, 58)    # Спокойный серый цвет выполненной задачи
+
+# Хранилище цветов для матрицы (изначально все горутины спят)
+matrix_colors = [BG_COLOR] * 11250
+
+def start_udp_server():
+    global matrix_colors
+    # Создаем UDP-сокет и привязываем его к порту 10002
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 10002))
+    print("UDP-сервер запущен на порту 10002 и ждет Go...")
+
+    while True:
+        data, _ = sock.recvfrom(4096)
+        message = data.decode("utf-8").strip()
         
-        # Крупные сочные квадраты 8x8 пикселей
-        self.block_size = 8
-        self.cols = 150
-        self.rows = 75
-        self.width = self.cols * self.block_size
-        self.height = self.rows * self.block_size
-        
-        # Создаем холст
-        self.canvas = tk.Canvas(root, width=self.width, height=self.height, bg="#111111", highlightthickness=0)
-        self.canvas.pack(padx=10, pady=10)
-        
-        self.pixels = {}
-        
-        # Сверх-яркая неоновая палитра для 8 ядер чипа M1
-        self.core_colors = {
-            1: "#FF3333",  # Ярко-красный
-            2: "#33FF33",  # Неоновый зеленый
-            3: "#3366FF",  # Электрик синий
-            4: "#FFFF33",  # Кислотно-желтый
-            5: "#FF33FF",  # Пурпурный
-            6: "#33FFFF",  # Бирюзовый
-            7: "#FF9933",  # Солнечно-оранжевый
-            8: "#9933FF"   # Глубокий фиолетовый
-        }
-        self.done_color = "#3a3a3a"  # Спокойный серый для выполненных задач
-
-        # Отрисовываем сетку крупных "спящих" горутин
-        self.init_matrix()
-
-        # Запускаем чтение бэкенда Go
-        threading.Thread(target=self.read_go_output, daemon=True).start()
-
-    def init_matrix(self):
-        for job_id in range(11250):
-            row = job_id // self.cols
-            col = job_id % self.cols
-            
-            x1 = col * self.block_size
-            y1 = row * self.block_size
-            x2 = x1 + self.block_size
-            y2 = y1 + self.block_size
-            
-            # outline="" (без обводки) убирает тормоза на Mac
-            rect_id = self.canvas.create_rectangle(x1, y1, x2, y2, fill="#1e1e1e", outline="")
-            self.pixels[job_id] = rect_id
-
-    def read_go_output(self):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        backend_path = os.path.join(current_dir, "go_backend")
-
-        process = subprocess.Popen(
-            [backend_path], 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.STDOUT, 
-            text=True
-        )
-
-        for line in process.stdout:
-            line = line.strip()
+        # Обрабатываем строки из пакета
+        for line in message.split("\n"):
             if not line:
                 continue
-
+            
             parts = line.split(":")
-            command = parts
+            command = parts[0]
 
             if command == "start":
-                job_id = int(parts)
-                core_id = int(parts)
-                color = self.core_colors.get(core_id, "#ffffff")
-                self.root.after(0, self.change_pixel_color, job_id, color)
+                job_id = int(parts[1])
+                core_id = int(parts[2])
+                if 0 <= job_id < 11250:
+                    matrix_colors[job_id] = CORE_COLORS.get(core_id, (255, 255, 255))
 
             elif command == "done":
-                job_id = int(parts)
-                self.root.after(0, self.change_pixel_color, job_id, self.done_color)
-            
-            # 🔥 ВОТ ОН, СПАСИТЕЛЬНЫЙ ХАК:
-            # Даем графическому потоку Mac 1 миллисекунду на то, чтобы перевести дух и отрисовать интерфейс
-            time.sleep(0.001)
+                job_id = int(parts[1])
+                if 0 <= job_id < 11250:
+                    matrix_colors[job_id] = DONE_COLOR
 
-    def change_pixel_color(self, job_id, color):
-        if job_id in self.pixels:
-            rect_id = self.pixels[job_id]
-            self.canvas.itemconfig(rect_id, fill=color)
-            # Принудительно рендерим кадр в окно macOS
-            self.root.update_idletasks()
+def main():
+    # Инициализируем графический движок pygame
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Go-to-Python UDP Mesh Monitor (Pygame)")
+    
+    # Запускаем чтение входящих UDP-пакетов в фоновом потоке
+    threading.Thread(target=start_udp_server, daemon=True).start()
+
+    clock = pygame.time.Clock()
+
+    # Главный игровой цикл отрисовки
+    while True:
+        # Проверяем системные события Mac (чтобы окно можно было закрыть крестиком)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+
+        # Очищаем холст
+        screen.fill((17, 17, 17))
+
+        # Отрисовываем всю матрицу 150х75 за один проход видеокарты
+        for job_id in range(11250):
+            row = job_id // COLS
+            col = job_id % COLS
+            
+            x = col * BLOCK_SIZE
+            y = row * BLOCK_SIZE
+            
+            color = matrix_colors[job_id]
+            
+            # Рисуем ровный сочный квадрат с черной микро-обводкой в 1 пиксель
+            pygame.draw.rect(screen, color, (x, y, BLOCK_SIZE - 1, BLOCK_SIZE - 1))
+
+        # Выталкиваем готовый кадр на экран Mac M1
+        pygame.display.flip()
+        
+        # Ограничиваем скорость отрисовки до 60 кадров в секунду, чтобы не греть Mac
+        clock.tick(60)
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = SmoothPixelVisualizer(root)
-    root.mainloop()
+    main()
