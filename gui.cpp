@@ -110,10 +110,10 @@ int main() {
 
     // Настраиваем двумерную систему координат под размер нашей сетки
     glViewport(0, 0, width, height);
-    glMatrixMode(gl_PROJECTION);
+    glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
     glOrtho(0, width, height, 0, -1, 1);
-    glMatrixMode(gl_MODELVIEW);
+    glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
     // 2. Запускаем параллельный поток чтения сокетов
