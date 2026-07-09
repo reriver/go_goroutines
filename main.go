@@ -7,7 +7,6 @@ import (
 	"net"
 	"runtime"
 	"sync"
-	"time"
 )
 
 func main() {
@@ -63,7 +62,7 @@ func main() {
 				conn.Write([]byte(startMsg))
 
 				// Имитируем микро-работу, чтобы глаз успел заметить вспышку цвета
-				time.Sleep(time.Duration(20+rand.IntN(30)) * time.Millisecond)
+				//time.Sleep(time.Duration(20+rand.IntN(30)) * time.Millisecond)
 
 				// Выстреливаем UDP-пакет: задача ЗАВЕРШЕНА
 				doneMsg := fmt.Sprintf("done:%d\n", jobID)
