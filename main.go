@@ -10,44 +10,46 @@ import (
 )
 
 func main() {
-	// 1. Узнаем, сколько ядер есть в твоем Mac
 	numCores := runtime.NumCPU()
-
-	// Отправляем в Python команду инициализации экранов
 	fmt.Printf("init:%d\n", numCores)
+	os.Stdout.Sync()
 
-	// WaitGroup нужен, чтобы main() не закрылся раньше, чем горутины сделают работу
+	totalJobs := 11250 // 150x75 сетка
+	jobsChannel := make(chan int, totalJobs)
+
+	for i := 0; i < totalJobs; i++ {
+		jobsChannel <- i
+	}
+	close(jobsChannel)
+
 	var wg sync.WaitGroup
 
-	// 2. Запускаем по одной горутине на каждое доступное ядро
 	for coreID := 1; coreID <= numCores; coreID++ {
 		wg.Add(1)
-
-		// Запускаем горутину, передавая ей уникальный ID "ядра"
-		go func(id int) {
+		go func(cID int) {
 			defer wg.Done()
+			for jobID := range jobsChannel {
+				// Старт задачи — красим в цвет ядра
+				fmt.Printf("start:%d:%d\n", jobID, cID)
+				os.Stdout.Sync()
 
-			// Каждая горутина делает работу со своей случайной скоростью
-			totalSteps := 100
-			speed := 50 + rand.IntN(150) // задержка в миллисекундах
+				// Даем ядру "подержать" задачу, симулируя Work Stealing и прыжки
+				steps := 3 + rand.IntN(3)
+				for s := 0; s < steps; s++ {
+					time.Sleep(time.Duration(10+rand.IntN(20)) * time.Millisecond)
+					// Симулируем случайный прыжок на другое ядро
+					if rand.Float32() < 0.3 {
+						cID = 1 + rand.IntN(numCores)
+						fmt.Printf("start:%d:%d\n", jobID, cID)
+						os.Stdout.Sync()
+					}
+				}
 
-			// Внутри горутины в main.go:
-			for step := 1; step <= totalSteps; step++ {
-				time.Sleep(time.Duration(speed) * time.Millisecond)
-
-				// Отправляем прогресс
-				fmt.Printf("progress:%d:%d\n", id, step)
-
-				// 🔥 ДОБАВЬТЕ ЭТУ СТРОЧКУ СЮДА:
-				os.Stdout.Sync() // Принудительно выталкивает байты в Python прямо сейчас!
+				// Финал задачи — красим в серый
+				fmt.Printf("done:%d\n", jobID)
+				os.Stdout.Sync()
 			}
-
-			// Сигнализируем Python, что это ядро освободилось
-			fmt.Printf("done:%d\n", id)
 		}(coreID)
 	}
-
-	// Ждем окончания работы всех горутин
 	wg.Wait()
-	fmt.Println("all_done")
 }

@@ -1,78 +1,102 @@
-import sys
 import subprocess
 import threading
 import tkinter as tk
 from tkinter import ttk
+import os
+import time  # Добавили пакет времени для разгрузки процессора
 
-class GoVisualizer:
+class SmoothPixelVisualizer:
     def __init__(self, root):
         self.root = root
-        self.root.title("Go Goroutines Core Monitor")
-        self.progress_bars = {}
-        self.labels = {}
+        self.root.title("Go Channels 11,250 Goroutines Matrix")
         
-        # Запускаем чтение бэкенда в отдельном потоке Python,
-        # чтобы графическое окно не зависало
+        # Крупные сочные квадраты 8x8 пикселей
+        self.block_size = 8
+        self.cols = 150
+        self.rows = 75
+        self.width = self.cols * self.block_size
+        self.height = self.rows * self.block_size
+        
+        # Создаем холст
+        self.canvas = tk.Canvas(root, width=self.width, height=self.height, bg="#111111", highlightthickness=0)
+        self.canvas.pack(padx=10, pady=10)
+        
+        self.pixels = {}
+        
+        # Сверх-яркая неоновая палитра для 8 ядер чипа M1
+        self.core_colors = {
+            1: "#FF3333",  # Ярко-красный
+            2: "#33FF33",  # Неоновый зеленый
+            3: "#3366FF",  # Электрик синий
+            4: "#FFFF33",  # Кислотно-желтый
+            5: "#FF33FF",  # Пурпурный
+            6: "#33FFFF",  # Бирюзовый
+            7: "#FF9933",  # Солнечно-оранжевый
+            8: "#9933FF"   # Глубокий фиолетовый
+        }
+        self.done_color = "#3a3a3a"  # Спокойный серый для выполненных задач
+
+        # Отрисовываем сетку крупных "спящих" горутин
+        self.init_matrix()
+
+        # Запускаем чтение бэкенда Go
         threading.Thread(target=self.read_go_output, daemon=True).start()
 
+    def init_matrix(self):
+        for job_id in range(11250):
+            row = job_id // self.cols
+            col = job_id % self.cols
+            
+            x1 = col * self.block_size
+            y1 = row * self.block_size
+            x2 = x1 + self.block_size
+            y2 = y1 + self.block_size
+            
+            # outline="" (без обводки) убирает тормоза на Mac
+            rect_id = self.canvas.create_rectangle(x1, y1, x2, y2, fill="#1e1e1e", outline="")
+            self.pixels[job_id] = rect_id
+
     def read_go_output(self):
-        # Запускаем наш скомпилированный Go-бинарник
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        backend_path = os.path.join(current_dir, "go_backend")
+
         process = subprocess.Popen(
-            ["./go_backend"], 
+            [backend_path], 
             stdout=subprocess.PIPE, 
             stderr=subprocess.STDOUT, 
             text=True
         )
 
-        # Построчно читаем то, что Go пишет в Stdout через fmt.Println
         for line in process.stdout:
             line = line.strip()
             if not line:
                 continue
 
             parts = line.split(":")
-            command = parts[0]
+            command = parts
 
-            if command == "init":
-                # Получили команду инициализации ядер (например, init:8)
-                cores_count = int(parts[1])
-                # Вызываем отрисовку интерфейса в главном потоке Python
-                self.root.after(0, self.setup_ui, cores_count)
-
-            elif command == "progress":
-                # Получили прогресс (progress:НомерЯдра:Процент)
-                core_id = int(parts[1])
-                value = int(parts[2])
-                self.root.after(0, self.update_progress, core_id, value)
+            if command == "start":
+                job_id = int(parts)
+                core_id = int(parts)
+                color = self.core_colors.get(core_id, "#ffffff")
+                self.root.after(0, self.change_pixel_color, job_id, color)
 
             elif command == "done":
-                core_id = int(parts[1])
-                self.root.after(0, self.mark_done, core_id)
+                job_id = int(parts)
+                self.root.after(0, self.change_pixel_color, job_id, self.done_color)
+            
+            # 🔥 ВОТ ОН, СПАСИТЕЛЬНЫЙ ХАК:
+            # Даем графическому потоку Mac 1 миллисекунду на то, чтобы перевести дух и отрисовать интерфейс
+            time.sleep(0.001)
 
-    def setup_ui(self, cores_count):
-        print(f"Инициализируем интерфейс под {cores_count} ядер Mac...")
-        for i in range(1, cores_count + 1):
-            frame = ttk.Frame(self.root, padding=10)
-            frame.pack(fill=tk.X)
-
-            label = ttk.Label(frame, text=f"Ядро CPU #{i}: РАБОТАЕТ", width=35)
-            label.pack(side=tk.LEFT)
-            self.labels[i] = label
-
-            progress = ttk.Progressbar(frame, orient="horizontal", length=300, mode="determinate")
-            progress.pack(side=tk.LEFT, padx=10)
-            self.progress_bars[i] = progress
-
-    def update_progress(self, core_id, value):
-        if core_id in self.progress_bars:
-            self.progress_bars[core_id]['value'] = value
-            self.labels[core_id].config(text=f"Ядро CPU #{core_id}: Вычисление {value}%")
-
-    def mark_done(self, core_id):
-        if core_id in self.labels:
-            self.labels[core_id].config(text=f"Ядро CPU #{core_id}: СВОБОДНО (Done)")
+    def change_pixel_color(self, job_id, color):
+        if job_id in self.pixels:
+            rect_id = self.pixels[job_id]
+            self.canvas.itemconfig(rect_id, fill=color)
+            # Принудительно рендерим кадр в окно macOS
+            self.root.update_idletasks()
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = GoVisualizer(root)
+    app = SmoothPixelVisualizer(root)
     root.mainloop()
